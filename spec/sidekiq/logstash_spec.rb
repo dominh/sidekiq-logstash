@@ -6,6 +6,7 @@ require 'workers/spec_worker'
 describe Sidekiq::Logstash do
   let(:buffer) { StringIO.new }
   let(:job) { FactoryGirl.build(:job) }
+  #let(:processor) { Sidekiq::Processor.new }
 
   before { Sidekiq.logger = Logger.new(buffer) }
 
@@ -18,10 +19,29 @@ describe Sidekiq::Logstash do
     Sidekiq::Logstash.setup
   end
 
-  it 'logs properly' do
-    expect(Sidekiq.logger).to receive(:info)
-    Sidekiq::Testing.inline! do
-      SpecWorker.perform_async
+  if Gem::Version.new(Sidekiq::VERSION) >= Gem::Version.new('5')
+    context 'Sidekiq 5 or later' do
+      it 'logs properly' do
+        manager_double = double(Sidekiq::Manager)
+        allow(manager_double).to receive(:options).and_return({:queues => ['default'], job_logger: Sidekiq::LogstashJobLogger})
+
+        processor = Sidekiq::Processor.new(manager_double)
+        unit_of_work = Sidekiq::BasicFetch::UnitOfWork.new('queue:default', {class: 'SpecWorker', args: []}.to_json)
+
+        expect(Sidekiq.logger).to receive(:info).
+          with(hash_including('class', 'args', 'message', 'pid', 'duration', 'job_status', 'completed_at'))
+        processor.send(:process, unit_of_work)
+      end
+    end
+  else
+    context 'Sidekiq 4 or earlier' do
+      it 'logs properly' do
+        expect(Sidekiq.logger).to receive(:info).
+          with(hash_including('class', 'args', 'message', 'pid', 'duration', 'job_status', 'completed_at'))
+        Sidekiq::Testing.inline! do
+          SpecWorker.perform_async
+        end
+      end
     end
   end
 
