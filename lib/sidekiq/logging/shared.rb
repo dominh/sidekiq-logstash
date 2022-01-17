@@ -49,14 +49,23 @@ module Sidekiq
 
         payload['message'] += ": fail: #{payload['duration']} sec"
         payload['job_status'] = 'fail'
-        payload['error_message'] = exc.message
-        payload['error'] = exc.class
-        payload['error_backtrace'] = %('#{exc.backtrace.join("\n")}')
+        payload['error'] = get_error(exc)
 
         process_payload(payload)
       end
 
       private
+
+      def get_error(exc)
+        error_hash = {
+          'class' => exc.class.to_s,
+          'message' => exc.message,
+          'backtrace' => %('#{exc.backtrace.join("\n")}')
+        }
+        cause = exc.cause
+
+        cause ? error_hash.merge('cause' => get_error(cause)) : error_hash
+      end
 
       def setup_payload(job)
         # Create a copy of the payload using JSON
